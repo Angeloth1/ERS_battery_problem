@@ -1,0 +1,7 @@
+# FastF1 Cache (data download)
+fastf1_cache/
+
+# Python environment
+__pycache__/
+*.pyc
+.venv/

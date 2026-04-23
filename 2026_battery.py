@@ -29,7 +29,7 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-# ── Cache ──────────────────────────────────────────────────────────────────────
+# Cache 
 CACHE_PATH = Path("./fastf1_cache")
 CACHE_PATH.mkdir(exist_ok=True)
 fastf1.Cache.enable_cache(str(CACHE_PATH))
@@ -366,7 +366,7 @@ def plot_telemetry(df, slm_zones, otm_zones, candidate, thr_slm, thr_otm,
         fontsize=12, color="#eeeeee", y=0.97
     )
 
-    out = Path("./fastf1_cache") / f"ers_telemetry_{driver_name}.png"
+    out = Path("./graphs") / f"ers_telemetry_{driver_name}.png"
     plt.savefig(out, dpi=150, bbox_inches="tight", facecolor="#0f0f0f")
     print(f"✓ Chart saved: {out}")
     plt.show()
@@ -418,7 +418,7 @@ def plot_overlay_2025_vs_2026(df_2025: pd.DataFrame | None,
     fig.suptitle(f"Comparison 2025 vs. 2026 – {straight_label}", fontsize=12, color="#eeeeee", y=0.97)
     fig.subplots_adjust(hspace=0.06, top=0.93, bottom=0.08)
 
-    out = Path("./fastf1_cache") / "overlay_2025_vs_2026.png"
+    out = Path("./graphs") / "overlay_2025_vs_2026.png"
     plt.savefig(out, dpi=150, bbox_inches="tight", facecolor="#0f0f0f")
     print(f"✓ Overlay saved: {out}")
     plt.show()
@@ -461,12 +461,12 @@ def plot_baseline_diagnostic(cand: pd.DataFrame, driver_name: str):
     ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
     ax.set_title(f"Baseline Diagnostic – {driver_name}", color="#eeeeee")
 
-    out = Path("./fastf1_cache") / f"baseline_diagnostic_{driver_name}.png"
+    out = Path("./graphs") / f"baseline_diagnostic_{driver_name}.png"
     plt.savefig(out, dpi=150, bbox_inches="tight", facecolor="#0f0f0f")
     print(f"✓ Baseline diagnostic: {out}")
     plt.show()
 def main():
-    OUTPUT_DIR   = Path("./fastf1_cache")
+    OUTPUT_DIR   = Path("./graphs")
     DRIVER_CODE  = "HAM"
     SESSION_YEAR = 2026
     SESSION_EVT  = 1
