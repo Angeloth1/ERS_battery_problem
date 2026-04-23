@@ -438,8 +438,7 @@ def load_session_safe(year: int, event, session_type: str):
 
 def plot_baseline_diagnostic(cand: pd.DataFrame, driver_name: str):
     """
-    Scatter: F_propulsive vs. Speed, s baseline křivkou.
-    Okamžitě odhalí kde baseline extrapoluje mimo data.
+    Scatter: F_propulsive vs. Speed.
     """
     fig, ax = plt.subplots(figsize=(10, 6), facecolor="#0f0f0f")
     ax.set_facecolor("#141414")
@@ -501,7 +500,7 @@ def main():
             lap_2025 = session_2025.laps.pick_drivers(DRIVER_CODE).pick_fastest()
             df_2025  = clean_telemetry(lap_2025.get_telemetry())
         except Exception as e:
-            print(f"⚠ 2025 lap not loaded: {e}")
+            print(f"2025 lap not loaded: {e}")
 
     plot_overlay_2025_vs_2026(df_2025, df_2026, slm_zones,
                                straight_label=f"GP {SESSION_EVT} – Fastest Lap")
