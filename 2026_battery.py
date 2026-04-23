@@ -39,7 +39,7 @@ fastf1.Cache.enable_cache(str(CACHE_PATH))
 
 AIR_DENSITY  = 1.225   # kg/m³ – Standard atmosphere (±0.05 at 20 °C / 500m ASL)
 CAR_MASS     = 768     # kg   – Minimum mass incl. driver (±5 kg)
-CD_A         = 0.65    # m²   – Cd * Frontal Area; depends on aero setup (±0.15 m²)
+CD_A         = 0.55    # m²   – Cd * Frontal Area; depends on aero setup (±0.15 m²)
                        #        affects baseline by ~8% at 250 km/h
 ROLLING_COEF = 0.015   # –    – Rolling resistance (±0.003)
 G            = 9.81    # m/s²
@@ -47,14 +47,14 @@ G            = 9.81    # m/s²
 # DETECTION PARAMETERS
 
 MIN_SPEED_KMH        = 200    # km/h – Minimum speed for analysis (straights)
-THROTTLE_MIN         = 98     # %    – Full throttle (WOT condition)
+THROTTLE_MIN         = 96     # %    – Full throttle (WOT condition)
 GEAR_STABLE_WINDOW   = 5      # samples – Window for gear stability detection
 SG_WINDOW            = 15     # samples – Savitzky-Golay window (must be odd)
 SG_POLYORDER         = 3
 
-BASELINE_DEG         = 3      # Polynomial degree for ICE baseline
+BASELINE_DEG         = 2      # Polynomial degree for ICE baseline
 BASELINE_N_BINS      = 20     # Number of speed bins
-BASELINE_PERCENTILE  = 25     # Force percentile in each bin → "ICE Floor"
+BASELINE_PERCENTILE  = 35     # Force percentile in each bin → "ICE Floor"
 
 # Dual-threshold detection – Straight Line Mode vs. Overtake Mode
 # Overtake Mode = significantly higher ERS output → higher percentile
@@ -62,7 +62,7 @@ SLM_RESIDUAL_PERCENTILE  = 65   # Straight Line Mode threshold
 OTM_RESIDUAL_PERCENTILE  = 88   # Overtake Mode threshold
 
 MIN_ZONE_METERS      = 50     # m – Minimum zone length (noise filter)
-MERGE_GAP_METERS     = 50     # m – Merging threshold for adjacent zones
+MERGE_GAP_METERS     = 150     # m – Merging threshold for adjacent zones
 
 
 # TELEMETRY CLEANING
@@ -82,8 +82,9 @@ def clean_telemetry(df: pd.DataFrame) -> pd.DataFrame:
 
     # Remove physically impossible spikes (>150 km/h/s ≈ 41 m/s²)
     invalid = df["accel_raw"].abs() > 150
-    df = df.iloc[1:][~invalid].reset_index(drop=True)
-
+    df = df.iloc[1:].reset_index(drop=True)  
+    invalid = df["accel_raw"].abs() > 150    
+    df = df[~invalid].reset_index(drop=True) 
     # Savitzky-Golay acceleration smoothing
     if len(df) > SG_WINDOW:
         df["accel_smooth"] = savgol_filter(
@@ -282,7 +283,7 @@ def export_zones_csv(slm_zones, otm_zones, cand: pd.DataFrame,
 
 # visualization
 def plot_telemetry(df, slm_zones, otm_zones, candidate, thr_slm, thr_otm,
-                   driver_name=DRIVER_CODE, session_name="2026 R1"):
+                   driver_name, session_name="2026 R1"):
     """Speed, Acceleration + Throttle, Residual Force."""
     fig = plt.figure(figsize=(17, 12), facecolor="#0f0f0f")
     gs  = gridspec.GridSpec(3, 1, figure=fig, hspace=0.07,
@@ -300,14 +301,14 @@ def plot_telemetry(df, slm_zones, otm_zones, candidate, thr_slm, thr_otm,
     OTM_COLOR = "#e63946"   # Red    – Overtake Mode
     dist = df["Distance"]
 
-    # ── Panel 1: Speed ──────────────────────────────────────────────────────
+    # Panel 1: Speed 
     ax1.plot(dist, df["Speed"], color="#4da6ff", lw=1.4, label="Speed")
     ax1.axhline(MIN_SPEED_KMH, color="#555", ls="--", lw=0.8,
                 label=f"Min. {MIN_SPEED_KMH} km/h")
     ax1.set_ylabel("Speed (km/h)", color="#cccccc")
     ax1.set_ylim(0, df["Speed"].max() * 1.1)
 
-    # ── Panel 2: Acceleration + Throttle ────────────────────────────────────
+    # Panel 2: Acceleration + Throttle
     ax2.plot(dist, df["accel_raw"],    color="#333333", lw=0.6, label="Accel (Raw)")
     ax2.plot(dist, df["accel_smooth"], color="#4da6ff", lw=1.3, label="Accel (Filter)")
     ax2.axhline(0, color="#444", lw=0.6)
@@ -321,7 +322,7 @@ def plot_telemetry(df, slm_zones, otm_zones, candidate, thr_slm, thr_otm,
     ax2b.set_ylabel("Throttle (%)", color="#cc4444")
     ax2b.tick_params(colors="#cc4444", labelsize=7)
 
-    # ── Panel 3: Residual Force ──────────────────────────────────────────────
+    # Panel 3: Residual Force
     if candidate is not None and "F_residual" in candidate.columns:
         cdist = candidate["Distance"]
         res   = candidate["F_residual"]
@@ -341,7 +342,7 @@ def plot_telemetry(df, slm_zones, otm_zones, candidate, thr_slm, thr_otm,
         ax3.set_ylabel("Force (N)", color="#cccccc")
         ax3.set_xlabel("Distance (m)", color="#aaaaaa")
 
-    # ── Highlight Zones ────────────────────────────────────────────────────
+    # Highlight Zones 
     for i, (d_start, d_end, *_) in enumerate(slm_zones):
         for ax in [ax1, ax2, ax3]:
             ax.axvspan(d_start, d_end, color=SLM_COLOR, alpha=0.18, label="SLM" if (i == 0 and ax is ax1) else "")
@@ -371,9 +372,7 @@ def plot_telemetry(df, slm_zones, otm_zones, candidate, thr_slm, thr_otm,
     plt.show()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # VISUALIZATION – 2025 vs. 2026 Overlay
-# ══════════════════════════════════════════════════════════════════════════════
 
 def plot_overlay_2025_vs_2026(df_2025: pd.DataFrame | None,
                                df_2026: pd.DataFrame,
@@ -437,7 +436,36 @@ def load_session_safe(year: int, event, session_type: str):
         print(f"❌ Loading session {year} / {event} / {session_type} failed: {e}")
         return None
 
+def plot_baseline_diagnostic(cand: pd.DataFrame, driver_name: str):
+    """
+    Scatter: F_propulsive vs. Speed, s baseline křivkou.
+    Okamžitě odhalí kde baseline extrapoluje mimo data.
+    """
+    fig, ax = plt.subplots(figsize=(10, 6), facecolor="#0f0f0f")
+    ax.set_facecolor("#141414")
+    ax.tick_params(colors="#aaaaaa")
+    ax.spines[:].set_color("#333333")
 
+    ax.scatter(cand["Speed"], cand["F_propulsive"],
+               s=2, alpha=0.3, color="#4da6ff", label="F_propulsive")
+    ax.scatter(cand["Speed"], cand["F_baseline"],
+               s=2, alpha=0.6, color="#44aa66", label="ICE baseline")
+
+    # Zvýrazni spike_suspect zóny jinou barvou
+    suspect_mask = cand["F_residual"] > cand["F_residual"].quantile(0.95)
+    ax.scatter(cand.loc[suspect_mask, "Speed"],
+               cand.loc[suspect_mask, "F_propulsive"],
+               s=8, color="#e63946", alpha=0.7, label="Top 5% residual")
+
+    ax.set_xlabel("Speed (km/h)", color="#aaaaaa")
+    ax.set_ylabel("Force (N)", color="#cccccc")
+    ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
+    ax.set_title(f"Baseline Diagnostic – {driver_name}", color="#eeeeee")
+
+    out = Path("./fastf1_cache") / f"baseline_diagnostic_{driver_name}.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight", facecolor="#0f0f0f")
+    print(f"✓ Baseline diagnostic: {out}")
+    plt.show()
 def main():
     OUTPUT_DIR   = Path("./fastf1_cache")
     DRIVER_CODE  = "HAM"
@@ -483,6 +511,7 @@ def main():
     print(f"Total estimated ERS energy per lap: {total_slm_kj:.0f} kJ")
     # Reference: 2026 battery limit ~4 MJ (4000 kJ) per lap deployment.
     # If output is significantly higher, baseline is too low (CD_A likely underestimated).
-
+    if candidate is not None:
+        plot_baseline_diagnostic(candidate, DRIVER_CODE)
 if __name__ == "__main__":
     main()
