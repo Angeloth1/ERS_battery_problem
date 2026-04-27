@@ -172,19 +172,12 @@ else:
 
     # Krok 3: SG smoothing na track medianu
     print(f"\n  Krok 3: SG smoothing (okno = {SG_WINDOW_FINAL}, vstup = track median)")
-    z_step3 = gaussian_filter1d(z_step2, sigma=15) 
-    diff_sg = np.abs(z_step3 - z_step2).mean()
-    print(f"    Průměrná změna oproti kroku 2: {diff_sg:.3f} m")
+    z_step3 = gaussian_filter1d(z_step2, sigma=15)
 
-            # Výsledný gradient
-    dZ_clean = np.gradient(z_step3)
-    dD = np.gradient(d_vals)
-    dD[dD < 0.1] = 0.1  # Fyzikální pojistka: minimální krok 10cm pro výpočet
-
-    grad_clean = np.degrees(np.arctan2(dZ_clean, dD))
-
-    # Fyzikální CLIP (v F1 neexistuje nic nad 15 stupňů)
-    grad_clean = np.clip(grad_clean, -15, 15)
+    # Výsledný gradient
+    # POZOR: d_vals musí být tel["Distance"].values
+    grad_raw   = np.degrees(np.arctan2(np.gradient(z_vals_clean), np.gradient(d_vals)))
+    grad_clean = np.degrees(np.arctan2(np.gradient(z_step3), np.gradient(d_vals)))
 
     print(f"\n  Porovnání gradientu před / po čištění:")
     print(f"  {'':25} {'před':>10} {'po':>10}")
@@ -193,15 +186,9 @@ else:
     print(f"  {'Std':25} {grad_raw.std():>10.2f}° {grad_clean.std():>10.2f}°")
 
     mass = 776.2
-    f_max_raw   = mass * 9.81 * np.sin(np.radians(abs(grad_raw.max())))
     f_max_clean = mass * 9.81 * np.sin(np.radians(abs(grad_clean.max())))
     print(f"\n  Max gradient síla (m = {mass} kg):")
-    print(f"    Před čištěním : {f_max_raw:.0f} N")
     print(f"    Po čištění    : {f_max_clean:.0f} N")
-    if grad_clean.max() < 5:
-        print(f"    ✓ Gradient po čištění je fyzikálně věrohodný.")
-    else:
-        print(f"    ⚠ Gradient stále přesahuje 5° – zvažte deaktivaci Z korekce.")
 
 # ── SEKCE 5: Grafy ────────────────────────────────────────────────────────────
 print("\n" + "=" * 60)
