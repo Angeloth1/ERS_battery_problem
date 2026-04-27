@@ -23,7 +23,7 @@ fastf1.Cache.enable_cache(str(CACHE_PATH))
 SESSION_YEAR = 2026
 SESSION_EVT  = 1
 SESSION_TYPE = "R"
-DRIVER_CODE  = "HAM"
+DRIVER_CODE  = "VER"
 
 SPIKE_THRESHOLD_M  = 2.0   # m – max realistický skok Z mezi sousedními vzorky
 MEDIAN_KERNEL      = 11    # median filter kernel (musí být liché)
@@ -38,6 +38,19 @@ session.load()
 
 lap = session.laps.pick_drivers(DRIVER_CODE).pick_fastest()
 tel = lap.get_telemetry()
+
+# Přidej hned za tel = lap.get_telemetry()
+all_tel = session.laps.pick_drivers(DRIVER_CODE).get_telemetry()
+BIN_SIZE = 10
+bins = np.arange(0, all_tel["Distance"].max() + BIN_SIZE, BIN_SIZE)
+all_tel["DistBin"] = pd.cut(all_tel["Distance"], bins=bins, labels=bins[:-1])
+z_track = all_tel.groupby("DistBin", observed=True)["Z"].median()
+z_track_dist = z_track.index.astype(float).values
+z_track_vals = z_track.values
+
+# Interpoluj na stejné distance body jako tel
+z_vals_clean = np.interp(tel["Distance"].values, z_track_dist, z_track_vals)
+
 
 print(f"\nDriver : {DRIVER_CODE}")
 print(f"Kolo   : #{int(lap['LapNumber'])}")
@@ -142,7 +155,8 @@ if "Z" in tel.columns:
 
     # Krok 3: SG smoothing
     print(f"\n  Krok 3: SG smoothing (okno = {SG_WINDOW_FINAL})")
-    z_step3 = savgol_filter(z_step2, window_length=SG_WINDOW_FINAL, polyorder=SG_POLYORDER)
+    # z_step3 = savgol_filter(z_step2, window_length=SG_WINDOW_FINAL, polyorder=SG_POLYORDER)
+    z_step3 = savgol_filter(z_vals_clean, window_length=SG_WINDOW_FINAL, polyorder=SG_POLYORDER)
     diff_sg = np.abs(z_step3 - z_step2).mean()
     print(f"    Průměrná změna oproti kroku 2: {diff_sg:.3f} m")
 
@@ -198,10 +212,8 @@ ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
 # Panel 2: Z výška – kroky čištění
 ax = axes[1]
 if "Z" in tel.columns:
-    ax.plot(dist, z_vals,  color="#555555", lw=0.7, label="Raw Z")
-    ax.plot(dist, z_step1, color="#4da6ff", lw=1.0, label="Po spike removal")
-    ax.plot(dist, z_step2, color="#44aa66", lw=1.0, label=f"Po median ({MEDIAN_KERNEL})")
-    ax.plot(dist, z_step3, color="#f5a623", lw=1.5, label=f"Po SG ({SG_WINDOW_FINAL})")
+    ax.plot(dist, z_vals_clean, color="#4da6ff", lw=1.2, label="Median přes všechna kola")
+    ax.plot(dist, z_step3,      color="#f5a623", lw=1.5, label=f"Po SG ({SG_WINDOW_FINAL})")
 ax.set_ylabel("Výška (m)", color="#cccccc")
 ax.set_title("Z výška – kroky čištění", color="#aaaaaa", fontsize=9)
 ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
