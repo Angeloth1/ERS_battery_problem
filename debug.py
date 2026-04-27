@@ -25,7 +25,7 @@ DRIVER_CODE  = "VER"
 
 SPIKE_THRESHOLD_M  = 2.0
 MEDIAN_KERNEL      = 11
-SG_WINDOW_FINAL    = 401
+SG_WINDOW_FINAL    = 101
 SG_POLYORDER       = 2
 
 # ── Načtení dat ───────────────────────────────────────────────────────────────
@@ -34,7 +34,6 @@ print("Načítám session...")
 session = fastf1.get_session(SESSION_YEAR, SESSION_EVT, SESSION_TYPE)
 session.load()
 
-print(session.laps[["LapNumber", "TrackStatus", "Deleted"]].to_string())
 
 lap = (session.laps
        .pick_drivers(DRIVER_CODE)
@@ -54,6 +53,7 @@ z_vals_clean = np.interp(tel["Distance"].values, z_track_dist, z_track_vals)
 
 # ── Z_CLAMPED – definováno na úrovni modulu ───────────────────────────────────
 Z_CLAMPED = "Z" in tel.columns and tel["Z"].max() >= 99.9
+Z_SOURCE   = "track_median" if Z_CLAMPED else "raw"
 
 print(f"\nDriver : {DRIVER_CODE}")
 print(f"Kolo   : #{int(lap['LapNumber'])}")
@@ -144,12 +144,16 @@ grad_raw   = None
 
 if "Z" not in tel.columns:
     print("  ✗ Z kanál chybí – pipeline přeskočena.")
-elif Z_CLAMPED:
-    print("  ✗ Z data clamped na 100 m – pipeline přeskočena, Z korekce VYPNUTA.")
 else:
+    if Z_CLAMPED:
+        print(f"  ⚠ Z data clamped – vstup nahrazen track medianem (z_vals_clean).")
+        z_input = z_vals_clean   # <-- přepnutí zdroje
+    else:
+        z_input = z_vals
+
     # Krok 1: Spike outlier removal
     print(f"\n  Krok 1: Spike removal (threshold = {SPIKE_THRESHOLD_M} m)")
-    z_step1 = z_vals.copy().astype(float)
+    z_step1 = z_input.copy().astype(float)
     dz      = np.diff(z_step1)
     spikes  = np.abs(dz) > SPIKE_THRESHOLD_M
     spike_indices = np.where(spikes)[0] + 1
@@ -167,13 +171,12 @@ else:
 
     # Krok 3: SG smoothing na track medianu
     print(f"\n  Krok 3: SG smoothing (okno = {SG_WINDOW_FINAL}, vstup = track median)")
-    z_step3 = savgol_filter(z_vals_clean, window_length=SG_WINDOW_FINAL, polyorder=SG_POLYORDER)
+    z_step3 = savgol_filter(z_step2, window_length=SG_WINDOW_FINAL, polyorder=SG_POLYORDER)
     diff_sg = np.abs(z_step3 - z_step2).mean()
     print(f"    Průměrná změna oproti kroku 2: {diff_sg:.3f} m")
 
-    # Výsledný gradient
-    grad_raw   = np.degrees(np.arctan(np.gradient(
-                   savgol_filter(z_vals, 501, SG_POLYORDER), d_vals)))
+            # Výsledný gradient
+    grad_raw   = np.degrees(np.arctan(np.gradient(z_vals_clean, d_vals)))
     grad_clean = np.degrees(np.arctan(np.gradient(z_step3, d_vals)))
 
     print(f"\n  Porovnání gradientu před / po čištění:")
@@ -222,39 +225,30 @@ ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
 
 # Panel 2: Z výška
 ax = axes[1]
-if "Z" in tel.columns and not Z_CLAMPED:
-    ax.plot(dist, z_vals,       color="#555555", lw=0.7, label="Raw Z")
+if "Z" in tel.columns and grad_clean is not None:
+    ax.plot(dist, z_input,      color="#555555", lw=0.7, label=f"Vstup ({'track median' if Z_CLAMPED else 'raw Z'})")
     ax.plot(dist, z_vals_clean, color="#4da6ff", lw=1.2, label="Median přes všechna kola")
     ax.plot(dist, z_step3,      color="#f5a623", lw=1.5, label=f"Po SG ({SG_WINDOW_FINAL})")
-elif Z_CLAMPED:
-    ax.text(0.5, 0.5, "Z data clamped – nepoužitelná", transform=ax.transAxes,
-            color="#e63946", ha="center", va="center", fontsize=11)
 ax.set_ylabel("Výška (m)", color="#cccccc")
 ax.set_title("Z výška – kroky čištění", color="#aaaaaa", fontsize=9)
 ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
 
 # Panel 3: Gradient před čištěním
 ax = axes[2]
-if "Z" in tel.columns and not Z_CLAMPED:
+if "Z" in tel.columns and grad_raw is not None:
     for window, color, lw in [(31, "#4da6ff", 0.8), (101, "#44aa66", 1.0), (301, "#f5a623", 1.2)]:
-        z_s = savgol_filter(z_vals, window_length=window, polyorder=SG_POLYORDER)
+        z_s = savgol_filter(z_input, window_length=window, polyorder=SG_POLYORDER)
         ax.plot(dist, np.degrees(np.arctan(np.gradient(z_s, dist))),
-                color=color, lw=lw, label=f"SG={window} (raw)")
+                color=color, lw=lw, label=f"SG={window}")
     ax.axhline(0,   color="#444", lw=0.5)
     ax.axhline(5,   color="#555", ls=":", lw=0.8, label="±5°")
     ax.axhline(-5,  color="#555", ls=":", lw=0.8)
     ax.axhline(15,  color="#e63946", ls="--", lw=0.8, label="±15° clip")
     ax.axhline(-15, color="#e63946", ls="--", lw=0.8)
-elif Z_CLAMPED:
-    ax.text(0.5, 0.5, "Z data clamped – gradient nevypočten", transform=ax.transAxes,
-            color="#e63946", ha="center", va="center", fontsize=11)
-ax.set_ylabel("Gradient (°)", color="#cccccc")
-ax.set_title("Gradient PŘED čištěním", color="#aaaaaa", fontsize=9)
-ax.legend(fontsize=8, facecolor="#1a1a1a", labelcolor="#cccccc")
 
 # Panel 4: Gradient po čištění
 ax = axes[3]
-if "Z" in tel.columns and not Z_CLAMPED and grad_clean is not None:
+if grad_clean is not None:
     ax.plot(dist, grad_clean, color="#f5a623", lw=1.3, label="Po cleaning pipeline")
     ax.plot(dist, grad_raw,   color="#333333", lw=0.7, alpha=0.6, label="Před (SG=501)")
     ax.axhline(0,   color="#444", lw=0.5)
@@ -262,9 +256,6 @@ if "Z" in tel.columns and not Z_CLAMPED and grad_clean is not None:
     ax.axhline(-5,  color="#555", ls=":", lw=0.8)
     ax.axhline(15,  color="#e63946", ls="--", lw=0.8, label="±15°")
     ax.axhline(-15, color="#e63946", ls="--", lw=0.8)
-elif Z_CLAMPED:
-    ax.text(0.5, 0.5, "Z data clamped – gradient nevypočten", transform=ax.transAxes,
-            color="#e63946", ha="center", va="center", fontsize=11)
 ax.set_ylabel("Gradient (°)", color="#cccccc")
 ax.set_xlabel("Distance (m)", color="#aaaaaa")
 ax.set_title("Gradient PO čištění", color="#aaaaaa", fontsize=9)
