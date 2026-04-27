@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter, medfilt
+from scipy.ndimage import gaussian_filter1d  
 from pathlib import Path
 
 # ── Konfigurace ───────────────────────────────────────────────────────────────
@@ -171,13 +172,19 @@ else:
 
     # Krok 3: SG smoothing na track medianu
     print(f"\n  Krok 3: SG smoothing (okno = {SG_WINDOW_FINAL}, vstup = track median)")
-    z_step3 = savgol_filter(z_step2, window_length=SG_WINDOW_FINAL, polyorder=SG_POLYORDER)
+    z_step3 = gaussian_filter1d(z_step2, sigma=15) 
     diff_sg = np.abs(z_step3 - z_step2).mean()
     print(f"    Průměrná změna oproti kroku 2: {diff_sg:.3f} m")
 
             # Výsledný gradient
-    grad_raw   = np.degrees(np.arctan(np.gradient(z_vals_clean, d_vals)))
-    grad_clean = np.degrees(np.arctan(np.gradient(z_step3, d_vals)))
+    dZ_clean = np.gradient(z_step3)
+    dD = np.gradient(d_vals)
+    dD[dD < 0.1] = 0.1  # Fyzikální pojistka: minimální krok 10cm pro výpočet
+
+    grad_clean = np.degrees(np.arctan2(dZ_clean, dD))
+
+    # Fyzikální CLIP (v F1 neexistuje nic nad 15 stupňů)
+    grad_clean = np.clip(grad_clean, -15, 15)
 
     print(f"\n  Porovnání gradientu před / po čištění:")
     print(f"  {'':25} {'před':>10} {'po':>10}")
