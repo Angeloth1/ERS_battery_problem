@@ -1,61 +1,67 @@
 import fastf1
 import numpy as np
 import pandas as pd
-from scipy.signal import savgol_filter
 from scipy.ndimage import gaussian_filter1d
+import matplotlib.pyplot as plt
 
-# 1. Načtení reálných dat
-fastf1.Cache.enable_cache('fastf1_cache') # Uprav cestu ke své cache
+# 1. Konfigurace a načtení dat
+fastf1.Cache.enable_cache('./fastf1_cache')
 session = fastf1.get_session(2026, 'Australia', 'R')
 session.load()
 
-# Vybereme VER kolo 43
-laps = session.laps.pick_driver('VER')
-lap = laps[laps['LapNumber'] == 43].iloc[0]
-tel = lap.get_telemetry()
+# Vybereme nejrychlejší kolo VER
+lap = session.laps.pick_driver('VER').pick_fastest()
+tel = lap.get_telemetry().copy()
 
-# 2. Simulace tvého "Track Median" (problémový vstup)
-# Vytvoříme schody, které vznikají binováním
-BIN_SIZE = 10
-tel['DistanceBin'] = (tel['Distance'] // BIN_SIZE) * BIN_SIZE
-# Simulujeme fallback na median (tady dáváme průměrnou výšku pro každý bin)
-track_median = tel.groupby('DistanceBin')['Z'].transform('median')
-z_input = track_median.values
+# 2. VYTVOŘENÍ HLADKÉHO PROFILU TRATI (The "Master Map")
+# Místo abychom cpali schody do telemetrie, uděláme si čistý profil trati stranou
+BIN_SIZE = 10 # metrů
+bins = np.arange(0, tel['Distance'].max() + BIN_SIZE, BIN_SIZE)
 
-# 3. Výpočet gradientu dvěma způsoby
-# A) RAW Gradient (Změna výšky / Změna vzdálenosti)
-dZ = np.diff(z_input, prepend=z_input[0])
-dD = np.diff(tel['Distance'], prepend=tel['Distance'].iloc[0]-0.1)
-dD[dD <= 0] = 0.001 # Ošetření nulových kroků
+# Vytvoříme dataframe pro mapu trati
+track_map = pd.DataFrame({'DistBin': bins})
 
-# B) Tvůj SG přístup
-z_sg = savgol_filter(z_input, window_length=101, polyorder=3)
-grad_sg = np.degrees(np.arctan2(np.gradient(z_sg), np.gradient(tel['Distance'])))
+# Získáme medián Z pro každý bin ze všech kol (nebo jen z jednoho, pokud chceš)
+# Pro demo použijeme jen toto jedno kolo:
+tel['DistBin'] = (tel['Distance'] // BIN_SIZE) * BIN_SIZE
+z_medians = tel.groupby('DistBin')['Z'].median()
 
-# C) Gaussian přístup (stabilní)
-z_gauss = gaussian_filter1d(z_input, sigma=10)
-grad_gauss = np.degrees(np.arctan2(np.gradient(z_gauss), np.gradient(tel['Distance'])))
+# Namapujeme mediány na naši track_map a doplníme případné díry
+track_map['Z_raw'] = track_map['DistBin'].map(z_medians).ffill().bfill()
 
-# --- LOGOVÁNÍ PROBLÉMU ---
+# --- KLÍČOVÝ KROK: Vyhlazení mapy před interpolací ---
+# Tímto odstraníme "schody" dříve, než se dostanou k telemetrii
+track_map['Z_smooth'] = gaussian_filter1d(track_map['Z_raw'], sigma=3) # sigma 3 na 10m binech = 30m smoothing
+
+# 3. INTERPOLACE ZPĚT DO TELEMETRIE
+# Teď lineárně propojíme body vyhlazené mapy s jemnými body telemetrie (např. každých 0.07 m)
+tel['Z_final'] = np.interp(tel['Distance'], track_map['DistBin'], track_map['Z_smooth'])
+
+# 4. VÝPOČET GRADIENTU
+# dDistance je jemná, ale dZ už není skoková, ale plynulá
+dist = tel['Distance'].values
+z_vals = tel['Z_final'].values
+
+# Výpočet sklonu ve stupních
+dz = np.gradient(z_vals)
+dd = np.gradient(dist)
+grad_rad = np.arctan2(dz, dd)
+tel['Gradient_Deg'] = np.degrees(grad_rad)
+
+# --- DEBUG LOG ---
 print("="*60)
-print(f"REAL DATA DEBUG (VER Lap 43)")
+print(f"ROBUST Z-PIPELINE DEBUG (VER Fastest Lap)")
 print("="*60)
-print(f"Vzorků: {len(tel)}")
-print(f"Průměrný dDistance: {dD.mean():.3f} m")
-print(f"Minimální dDistance: {dD.min():.6f} m")
+print(f"Telemetrie vzorků:  {len(tel)}")
+print(f"Max Gradient:       {tel['Gradient_Deg'].max():.2f}°")
+print(f"Min Gradient:       {tel['Gradient_Deg'].min():.2f}°")
+print(f"Průměrná vzdálenost mezi vzorky: {np.diff(dist).mean():.4f} m")
 
-# Najdeme místo, kde je gradient nejhorší
-idx_max = np.argmax(np.abs(grad_sg))
+# Kontrola artefaktů (pokud by dD bylo extrémně malé)
+critical_jumps = (np.abs(tel['Gradient_Deg']) > 15).sum()
+print(f"Kritické body (>15°): {critical_jumps}")
 
-print(f"\nKRITICKÝ BOD (Index {idx_max}):")
-print(f"Distance: {tel['Distance'].iloc[idx_max]:.2f} m")
-print(f"Lokální dDistance: {dD[idx_max]:.6f} m") 
-print(f"Lokální dZ (skok v binu): {dZ[idx_max]:.4f} m")
-print("-" * 30)
-print(f"MAX Savitzky-Golay Gradient: {grad_sg.max():.2f}°")
-print(f"MAX Gaussian Gradient:      {grad_gauss.max():.2f}°")
-
-if grad_sg.max() > 15:
-    print("\nPROBLÉM DETEKOVÁN:")
-    print("Vzdálenost mezi vzorky (dD) je příliš malá vůči skoku ve výšce (dZ).")
-    print("Dělení číslem blízkým nule vystřelí arctan k 90 stupňům.")
+# 5. VOLITELNĚ: Rychlý náhled
+# plt.plot(tel['Distance'], tel['Gradient_Deg'])
+# plt.title("Hladký gradient bez schodišťového efektu")
+# plt.show()
